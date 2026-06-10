@@ -1,5 +1,4 @@
-#requires -Version 5.1
-<#
+﻿<#
 .SYNOPSIS
 CENTIRIO - Creation de la structure finale avec interface graphique interactive et rapport HTML en francais.
 

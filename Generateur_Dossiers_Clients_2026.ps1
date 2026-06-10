@@ -1,5 +1,4 @@
-#requires -Version 5.1
-<#
+﻿<#
 .SYNOPSIS
   Générateur de dossiers clients & fichiers Excel (WPF).
   Charge une liste de sociétés depuis Excel, copie les templates
@@ -88,6 +87,39 @@ $xaml = @"
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="RowBackground" Value="#020617" />
             <Setter Property="AlternatingRowBackground" Value="#030712" />
+            <Setter Property="CellStyle">
+                <Setter.Value>
+                    <Style TargetType="DataGridCell">
+                        <Setter Property="Foreground" Value="White" />
+                        <Setter Property="Background" Value="Transparent" />
+                        <Setter Property="BorderThickness" Value="0" />
+                        <Style.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter Property="Background" Value="#1E3A5F" />
+                                <Setter Property="Foreground" Value="White" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#162D50" />
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="RowStyle">
+                <Setter.Value>
+                    <Style TargetType="DataGridRow">
+                        <Setter Property="Background" Value="{Binding RelativeSource={RelativeSource Self}, Path=Background}" />
+                        <Style.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter Property="Background" Value="#1E3A5F" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="#111827" />
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <Style TargetType="{x:Type DataGridColumnHeader}">
@@ -98,8 +130,29 @@ $xaml = @"
             <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
 
+        <Style TargetType="RadioButton">
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="Margin" Value="0,0,0,2" />
+        </Style>
+
+        <Style TargetType="CheckBox">
+            <Setter Property="Foreground" Value="White" />
+        </Style>
+
+        <Style TargetType="ProgressBar">
+            <Setter Property="Background" Value="#1E1E1E" />
+            <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrushDark}" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+
+        <Style TargetType="ScrollViewer">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+
         <Style TargetType="ScrollBar">
             <Setter Property="Background" Value="#020617" />
+            <Setter Property="Foreground" Value="#4B5563" />
         </Style>
     </Window.Resources>
 
@@ -355,12 +408,14 @@ $xaml = @"
 # Classes modèles
 # ─────────────────────────────────────────────────────────────
 Add-Type @"
+using System;
 using System.ComponentModel;
+using System.Collections.ObjectModel;
 public class SocieteViewModel : INotifyPropertyChanged {
     private bool _isSelected;
     public bool IsSelected {
-        get => _isSelected;
-        set { _isSelected = value; OnPropertyChanged(nameof(IsSelected)); }
+        get { return _isSelected; }
+        set { _isSelected = value; OnPropertyChanged("IsSelected"); }
     }
     public string RaisonSociale { get; set; }
     public string ICE { get; set; }
@@ -369,24 +424,28 @@ public class SocieteViewModel : INotifyPropertyChanged {
     public string Patente { get; set; }
     public string CIN { get; set; }
     public event PropertyChangedEventHandler PropertyChanged;
-    protected void OnPropertyChanged(string name) =>
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    protected void OnPropertyChanged(string name) {
+        if (PropertyChanged != null)
+            PropertyChanged(this, new PropertyChangedEventArgs(name));
+    }
 }
 
 public class TemplateViewModel : INotifyPropertyChanged {
     private bool _isSelected;
     public bool IsSelected {
-        get => _isSelected;
-        set { _isSelected = value; OnPropertyChanged(nameof(IsSelected)); }
+        get { return _isSelected; }
+        set { _isSelected = value; OnPropertyChanged("IsSelected"); }
     }
     public string Type { get; set; }
     public string FileName { get; set; }
     public string FullPath { get; set; }
     public event PropertyChangedEventHandler PropertyChanged;
-    protected void OnPropertyChanged(string name) =>
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    protected void OnPropertyChanged(string name) {
+        if (PropertyChanged != null)
+            PropertyChanged(this, new PropertyChangedEventArgs(name));
+    }
 }
-"@ -ReferencedAssemblies PresentationFramework
+"@
 
 # ─────────────────────────────────────────────────────────────
 # Chargement XAML
@@ -660,6 +719,16 @@ $btnGenerateGuide.Add_Click({
     $year = if ($txtYear.Text -match '^\d{4}$') { $txtYear.Text } else { (Get-Date).Year }
     $htmlPath = Join-Path $dest "Guide_Generation_${year}.html"
 
+    $companyLines = & {
+        $sb = [System.Text.StringBuilder]::new()
+        foreach ($c in $companies) {
+            if ($c.IsSelected) {
+                $null = $sb.AppendLine("  <li><strong>$($c.RaisonSociale)</strong> - ICE : $($c.ICE)</li>")
+            }
+        }
+        $sb.ToString()
+    }
+
     $html = @"
 <!DOCTYPE html><html lang="fr"><head><meta charset="utf-8">
 <title>Guide de génération $year</title>
@@ -682,11 +751,7 @@ $btnGenerateGuide.Add_Click({
 <div class="card">
 <h2>Sociétés traitées</h2>
 <ul>
-$(
-    ($companies | Where-Object { $_.IsSelected } | ForEach-Object {
-        "  <li><strong>$($_.RaisonSociale)</strong> — ICE : $($_.ICE)</li>"
-    }) -join "`n"
-)
+$companyLines
 </ul>
 </div>
 <p style="text-align:center;color:#6b7280;margin-top:30px">Généré le $(Get-Date -Format 'dd/MM/yyyy HH:mm')</p>

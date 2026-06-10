@@ -1,6 +1,4 @@
-
-#requires -version 5.1
-<#
+﻿<#
     CENTIRIO - Création de dossier client avec WPF (Mode Sombre & UI avec emojis)
     - ComboBox "Type de Collaborateur" 100% sombre (template personnalisé)
     - Préfixe d'ID libre (ComboBox éditable) + suffixe numérique (0–1000)
