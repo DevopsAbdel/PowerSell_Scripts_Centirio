@@ -1,0 +1,37 @@
+# PowerShell
+*.psd1
+*.psm1
+*.log
+Logs/
+
+# .NET
+bin/
+obj/
+*.user
+*.suo
+*.cache
+*.dll
+*.exe
+*.pdb
+*.nupkg
+.vs/
+[Dd]ebug/
+[Rr]elease/
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Config secrets (keep template, ignore local overrides)
+*.secret.*
+appsettings.Local.json
+
+# Build
+packages/
+*.nupkg
