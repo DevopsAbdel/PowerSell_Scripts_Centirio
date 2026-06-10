@@ -17,7 +17,7 @@ param(
     [string]$ParentPath,
 
     [Parameter(Mandatory = $false)]
-    [string]$RootFolderName = '02_CENTIRIO',
+    [string]$RootFolderName = 'NOM DU CENTRE',
 
     [Parameter(Mandatory = $false)]
     [switch]$NoGui,
@@ -98,7 +98,7 @@ function New-CentirioFolder {
 function Select-FolderGui {
     param([System.Windows.Forms.IWin32Window]$Owner)
     $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
-    $dialog.Description = 'Choisissez le dossier parent ou la structure CENTIRIO sera creee'
+    $dialog.Description = "Choisissez le dossier parent ou la structure $RootFolderName sera creee"
     $dialog.ShowNewFolderButton = $true
     $dialog.RootFolder = [System.Environment+SpecialFolder]::Desktop
     if ($dialog.ShowDialog($Owner) -eq [System.Windows.Forms.DialogResult]::OK) {
@@ -230,21 +230,66 @@ $RoleDescriptions = [ordered]@{
     '99_Inventaires_et_Exports' = 'Historique des inventaires, logs et fichiers d''export.'
 }
 
+function Resolve-Token {
+    param([string]$Text, [string]$RootName)
+    if ([string]::IsNullOrWhiteSpace($Text)) { return $Text }
+    return $Text.Replace('CENTIRIO', $RootName)
+}
+
+function Get-ResolvedStructure {
+    param([string]$RootName)
+    $resolved = [ordered]@{}
+    foreach ($key in $Structure.Keys) {
+        $newKey = Resolve-Token -Text $key -RootName $RootName
+        $sub = [ordered]@{}
+        foreach ($subKey in $Structure[$key].Keys) {
+            $newSubKey = Resolve-Token -Text $subKey -RootName $RootName
+            $sub[$newSubKey] = Resolve-Token -Text $Structure[$key][$subKey] -RootName $RootName
+        }
+        $resolved[$newKey] = $sub
+    }
+    return $resolved
+}
+
+function Get-ResolvedRoleDescriptions {
+    param([string]$RootName)
+    $resolved = [ordered]@{}
+    foreach ($key in $RoleDescriptions.Keys) {
+        $newKey = Resolve-Token -Text $key -RootName $RootName
+        $resolved[$newKey] = Resolve-Token -Text $RoleDescriptions[$key] -RootName $RootName
+    }
+    return $resolved
+}
+
+$script:ResolvedStructure = Get-ResolvedStructure -RootName $RootFolderName
+$script:ResolvedRoleDescriptions = Get-ResolvedRoleDescriptions -RootName $RootFolderName
+
+function Update-ResolvedData {
+    param([string]$RootName)
+    $script:ResolvedStructure = Get-ResolvedStructure -RootName $RootName
+    $script:ResolvedRoleDescriptions = Get-ResolvedRoleDescriptions -RootName $RootName
+}
+
 function Build-TreeView {
-    param([System.Windows.Forms.TreeView]$TreeView)
+    param(
+        [System.Windows.Forms.TreeView]$TreeView,
+        [string]$RootName = $RootFolderName
+    )
     $TreeView.Nodes.Clear()
-    $rootNode = $TreeView.Nodes.Add($RootFolderName)
-    foreach ($main in $Structure.Keys) {
+    $rootNode = $TreeView.Nodes.Add($RootName)
+    $st = Get-ResolvedStructure -RootName $RootName
+    $mc = $ModeleClient
+    foreach ($main in $st.Keys) {
         $mainNode = $rootNode.Nodes.Add($main)
-        foreach ($sub in $Structure[$main].Keys) {
+        foreach ($sub in $st[$main].Keys) {
             [void]$mainNode.Nodes.Add($sub)
         }
-        if ($main -eq '02_Domiciliation_Clients') {
+        if ($main -match '^02_Domiciliation_Clients$') {
             $activeNode = $mainNode.Nodes | Where-Object { $_.Text -eq '01_Actifs' } | Select-Object -First 1
             if ($null -ne $activeNode) {
                 $modelNode = $activeNode.Nodes.Add('_Modele_Client')
-                foreach ($mc in $ModeleClient.Keys) {
-                    [void]$modelNode.Nodes.Add($mc)
+                foreach ($mcKey in $mc.Keys) {
+                    [void]$modelNode.Nodes.Add($mcKey)
                 }
             }
         }
@@ -257,12 +302,17 @@ function Generate-ReportHtml {
     param(
         [string]$RootPath,
         [string]$RootFolderName,
-        [bool]$IncludeModelClient = $true
+        [bool]$IncludeModelClient = $true,
+        [string]$ReportPilotageKey = ''
     )
+
+    $st = Get-ResolvedStructure -RootName $RootFolderName
+    $roleDesc = Get-ResolvedRoleDescriptions -RootName $RootFolderName
+    $domKey = $st.Keys | Where-Object { $_ -like '*Domiciliation*' } | Select-Object -First 1
 
     $cards = @(
         @{ Title = 'Organisation par pôles'; Text = 'La structure distingue clairement le pilotage, le juridique, les operations clients, la comptabilite, l''administration, le marketing, l''identite visuelle, les modeles, les outils et les archives.' },
-        @{ Title = 'Pôle central : domiciliation'; Text = 'Le bloc 02_Domiciliation_Clients regroupe le coeur du metier de domiciliation : clients actifs, retards, prospects, conformite et comptabilite liee au service.' },
+        @{ Title = "Pôle central : domiciliation"; Text = "Le bloc $domKey regroupe le coeur du metier de domiciliation : clients actifs, retards, prospects, conformite et comptabilite liee au service." },
         @{ Title = 'Moins de confusion'; Text = 'Chaque sous-dossier a une mission precise afin d''eviter les doublons, les melanges entre archives, modeles et documents actifs, et les pertes de temps lors de la recherche.' },
         @{ Title = 'Scalabilite'; Text = 'La structure peut s''agrandir sans perdre en lisibilite : nouveaux clients, nouvelles annees, nouveaux packs, nouveaux scripts et nouveaux suivis.' }
     )
@@ -278,19 +328,19 @@ function Generate-ReportHtml {
     }
 
     $sectionsHtml = @()
-    foreach ($main in $Structure.Keys) {
+    foreach ($main in $st.Keys) {
         $rows = @()
-        foreach ($sub in $Structure[$main].Keys) {
+        foreach ($sub in $st[$main].Keys) {
             $rows += @"
             <div class="row-item">
               <div class="folder-name"><code>$([string](Convert-TextToHtmlSafe $sub))</code></div>
-              <div class="folder-desc">$([string](Convert-TextToHtmlSafe $Structure[$main][$sub]))</div>
+              <div class="folder-desc">$([string](Convert-TextToHtmlSafe $st[$main][$sub]))</div>
             </div>
 "@
         }
 
         $extraHtml = ''
-        if ($IncludeModelClient -and $main -eq '02_Domiciliation_Clients') {
+        if ($IncludeModelClient -and $main -eq $domKey) {
             $modelRows = @()
             foreach ($mc in $ModeleClient.Keys) {
                 $modelRows += @"
@@ -314,10 +364,10 @@ function Generate-ReportHtml {
         <section class="pole">
           <div class="pole-header">
             <h3>$([string](Convert-TextToHtmlSafe $main))</h3>
-            <p>$([string](Convert-TextToHtmlSafe $RoleDescriptions[$main]))</p>
+            <p>$([string](Convert-TextToHtmlSafe $roleDesc[$main]))</p>
           </div>
           <div class="pole-body">
-            <div class="intro-line">$([string](Convert-TextToHtmlSafe ('Sous-dossiers principaux : ' + $Structure[$main].Count + ' element(s).')))</div>
+            <div class="intro-line">$([string](Convert-TextToHtmlSafe ('Sous-dossiers principaux : ' + $st[$main].Count + ' element(s).')))</div>
             <div class="rows">
               $($rows -join "`n")
             </div>
@@ -337,7 +387,7 @@ function Generate-ReportHtml {
   <meta charset="utf-8">
   <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>CENTIRIO - Rapport de structure finale</title>
+  <title>$([string](Convert-TextToHtmlSafe $RootFolderName)) - Rapport de structure finale</title>
   <style>
     :root {
       --bg: #0b1220;
@@ -392,7 +442,7 @@ function Generate-ReportHtml {
 <body>
   <div class="wrap">
     <section class="hero">
-      <h1>Rapport de structure documentaire CENTIRIO</h1>
+      <h1>Rapport de structure documentaire $([string](Convert-TextToHtmlSafe $RootFolderName))</h1>
       <p>Ce rapport est adapte a la structure finale validee. Il explique le role de chaque pôle fonctionnel ainsi que l'usage attendu de chaque sous-dossier pour faciliter le classement, la migration et la maintenance documentaire.</p>
       <div class="path-box"><strong>Chemin racine cible :</strong> <code>$rootPathHtml</code></div>
       <p class="meta"><strong>Genere le :</strong> $generatedAt</p>
@@ -431,7 +481,7 @@ function Generate-ReportHtml {
       <p>Une fois la structure creee, l'etape la plus utile est de lancer un script de migration controlee pour reclasser les dossiers et fichiers existants vers les nouveaux emplacements normalises.</p>
     </div>
 
-    <div class="footer">Rapport genere automatiquement par CENTIRIO_CreateFolderStructure_GUI_Final.ps1</div>
+    <div class="footer">Rapport genere automatiquement par le script de deploiement de structure ($([string](Convert-TextToHtmlSafe $RootFolderName)))</div>
   </div>
 </body>
 </html>
@@ -460,25 +510,32 @@ function Create-CentirioStructure {
 
     if (New-CentirioFolder -Path $rootPath) { $createdCount++ }
 
-    foreach ($main in $Structure.Keys) {
+    $st = Get-ResolvedStructure -RootName $RootFolderName
+
+    $pilotageKey = $st.Keys | Where-Object { $_ -like '*Pilotage*' } | Select-Object -First 1
+    $domiciliationKeys = $st.Keys | Where-Object { $_ -like '*Domiciliation*' } | Select-Object -First 1
+
+    foreach ($main in $st.Keys) {
         $mainPath = Join-Path -Path $rootPath -ChildPath $main
         if (New-CentirioFolder -Path $mainPath) { $createdCount++ }
 
-        foreach ($sub in $Structure[$main].Keys) {
+        foreach ($sub in $st[$main].Keys) {
             $subPath = Join-Path -Path $mainPath -ChildPath $sub
             if (New-CentirioFolder -Path $subPath) { $createdCount++ }
         }
     }
 
-    $modeleClientRoot = Join-Path -Path $rootPath -ChildPath '02_Domiciliation_Clients\01_Actifs\_Modele_Client'
+    $modeleClientRoot = Join-Path -Path $rootPath -ChildPath "$domiciliationKeys\01_Actifs\_Modele_Client"
     if (New-CentirioFolder -Path $modeleClientRoot) { $createdCount++ }
     foreach ($mc in $ModeleClient.Keys) {
         if (New-CentirioFolder -Path (Join-Path -Path $modeleClientRoot -ChildPath $mc)) { $createdCount++ }
     }
 
-    $readmePath = Join-Path -Path $rootPath -ChildPath '00_Pilotage_CENTIRIO\02_Strategie_et_Organisation\README_Nommage_et_Classement.txt'
+    $strategieSub = if ($pilotageKey) { "$pilotageKey\02_Strategie_et_Organisation" } else { '00_Pilotage\02_Strategie_et_Organisation' }
+    $readmePath = Join-Path -Path $rootPath -ChildPath "$strategieSub\README_Nommage_et_Classement.txt"
+
     $readmeContent = @"
-REGLES DE NOMMAGE ET DE CLASSEMENT - CENTIRIO
+REGLES DE NOMMAGE ET DE CLASSEMENT - $RootFolderName
 ============================================
 
 1) DOSSIERS METIER
@@ -523,8 +580,8 @@ MODELE STANDARD DE DOSSIER CLIENT - DOMICILIATION
         Write-Utf8BomTextFile -Path $clientReadmePath -Content $clientReadmeContent
     }
 
-    $reportPath = Join-Path -Path $rootPath -ChildPath '00_Pilotage_CENTIRIO\02_Strategie_et_Organisation\CENTIRIO_Rapport_Structure_Finale.html'
-    $html = Generate-ReportHtml -RootPath $rootPath -RootFolderName $RootFolderName -IncludeModelClient $true
+    $reportPath = Join-Path -Path $rootPath -ChildPath "$strategieSub\$($RootFolderName)_Rapport_Structure_Finale.html"
+    $html = Generate-ReportHtml -RootPath $rootPath -RootFolderName $RootFolderName -IncludeModelClient $true -ReportPilotageKey $pilotageKey
     Write-Utf8BomTextFile -Path $reportPath -Content $html
 
     if ($OpenReportAutomatically) {
@@ -532,8 +589,8 @@ MODELE STANDARD DE DOSSIER CLIENT - DOMICILIATION
     }
     elseif (-not $SkipPrompt) {
         $answer = [System.Windows.Forms.MessageBox]::Show(
-            "La structure a ete creee avec succes (`$createdCount dossiers crees ou verifies). Voulez-vous ouvrir le rapport HTML maintenant ?",
-            'CENTIRIO - Rapport',
+            "La structure a ete creee avec succes ($createdCount dossiers crees ou verifies). Voulez-vous ouvrir le rapport HTML maintenant ?",
+            "$RootFolderName - Rapport",
             [System.Windows.Forms.MessageBoxButtons]::YesNo,
             [System.Windows.Forms.MessageBoxIcon]::Information
         )
@@ -565,7 +622,7 @@ if ($NoGui) {
 $form = New-Object System.Windows.Forms.Form
 $form.Text = 'CENTIRIO - Création de la structure finale'
 $form.Width = 1180
-$form.Height = 780
+$form.Height = 840
 $form.StartPosition = 'CenterScreen'
 $form.FormBorderStyle = 'FixedDialog'
 $form.MaximizeBox = $false
@@ -624,6 +681,12 @@ $textRoot.Location = New-Object System.Drawing.Point(22, 168)
 $textRoot.Text = $RootFolderName
 $form.Controls.Add($textRoot)
 
+$textRoot.Add_TextChanged({
+    Update-ResolvedData -RootName $textRoot.Text
+    Build-TreeView -TreeView $tree -RootName $textRoot.Text
+    Update-InfoPanel -NodeText $textRoot.Text -ParentText ''
+})
+
 $checkAutoOpen = New-Object System.Windows.Forms.CheckBox
 $checkAutoOpen.Text = 'Ouvrir automatiquement le rapport HTML après création'
 $checkAutoOpen.AutoSize = $true
@@ -680,7 +743,7 @@ $groupInfo.Controls.Add($richInfo)
 $statusLabel = New-Object System.Windows.Forms.Label
 $statusLabel.Text = 'Prêt.'
 $statusLabel.AutoSize = $true
-$statusLabel.Location = New-Object System.Drawing.Point(22, 710)
+$statusLabel.Location = New-Object System.Drawing.Point(22, 712)
 $statusLabel.ForeColor = [System.Drawing.Color]::LightGray
 $form.Controls.Add($statusLabel)
 
@@ -688,7 +751,7 @@ $btnCreate = New-Object System.Windows.Forms.Button
 $btnCreate.Text = 'Créer la structure'
 $btnCreate.Width = 160
 $btnCreate.Height = 38
-$btnCreate.Location = New-Object System.Drawing.Point(740, 705)
+$btnCreate.Location = New-Object System.Drawing.Point(740, 706)
 $btnCreate.BackColor = [System.Drawing.Color]::FromArgb(34, 197, 94)
 $btnCreate.ForeColor = [System.Drawing.Color]::Black
 $form.Controls.Add($btnCreate)
@@ -697,7 +760,7 @@ $btnOpenReport = New-Object System.Windows.Forms.Button
 $btnOpenReport.Text = 'Ouvrir le rapport'
 $btnOpenReport.Width = 140
 $btnOpenReport.Height = 38
-$btnOpenReport.Location = New-Object System.Drawing.Point(910, 705)
+$btnOpenReport.Location = New-Object System.Drawing.Point(910, 706)
 $btnOpenReport.Enabled = $false
 $form.Controls.Add($btnOpenReport)
 
@@ -705,7 +768,7 @@ $btnClose = New-Object System.Windows.Forms.Button
 $btnClose.Text = 'Fermer'
 $btnClose.Width = 110
 $btnClose.Height = 38
-$btnClose.Location = New-Object System.Drawing.Point(1050, 705)
+$btnClose.Location = New-Object System.Drawing.Point(1050, 706)
 $form.Controls.Add($btnClose)
 
 $script:LastReportPath = $null
@@ -720,17 +783,17 @@ function Update-InfoPanel {
     }
 
     if ($NodeText -eq $RootFolderName) {
-        $richInfo.Text = "Dossier racine.`n`nIl contiendra toute la structure documentaire finale de CENTIRIO."
+        $richInfo.Text = "Dossier racine.`n`nIl contiendra toute la structure documentaire finale."
         return
     }
 
-    if ($Structure.Contains($NodeText)) {
-        $richInfo.Text = "Pôle fonctionnel : $NodeText`n`n$($RoleDescriptions[$NodeText])`n`nSous-dossiers :`n- " + (($Structure[$NodeText].Keys) -join "`n- ")
+    if ($script:ResolvedStructure.Contains($NodeText)) {
+        $richInfo.Text = "Pôle fonctionnel : $NodeText`n`n$($script:ResolvedRoleDescriptions[$NodeText])`n`nSous-dossiers :`n- " + (($script:ResolvedStructure[$NodeText].Keys) -join "`n- ")
         return
     }
 
-    if ($ParentText -and $Structure.Contains($ParentText) -and $Structure[$ParentText].Contains($NodeText)) {
-        $richInfo.Text = "Sous-dossier : $NodeText`n`nPôle parent : $ParentText`n`nUsage recommandé : $($Structure[$ParentText][$NodeText])"
+    if ($ParentText -and $script:ResolvedStructure.Contains($ParentText) -and $script:ResolvedStructure[$ParentText].Contains($NodeText)) {
+        $richInfo.Text = "Sous-dossier : $NodeText`n`nPôle parent : $ParentText`n`nUsage recommandé : $($script:ResolvedStructure[$ParentText][$NodeText])"
         return
     }
 
@@ -780,7 +843,7 @@ $btnCreate.Add_Click({
         $statusLabel.Text = "Succès : $($result.CreatedCount) dossier(s) créé(s) ou vérifié(s). Racine : $($result.RootPath)"
         [System.Windows.Forms.MessageBox]::Show(
             "La structure a été créée avec succès.`n`nRacine : $($result.RootPath)`nRapport : $($result.ReportPath)",
-            'CENTIRIO - Création terminée',
+            "$($textRoot.Text) - Création terminée",
             [System.Windows.Forms.MessageBoxButtons]::OK,
             [System.Windows.Forms.MessageBoxIcon]::Information
         ) | Out-Null
@@ -789,7 +852,7 @@ $btnCreate.Add_Click({
         $statusLabel.Text = 'Erreur : ' + $_.Exception.Message
         [System.Windows.Forms.MessageBox]::Show(
             $_.Exception.Message,
-            'CENTIRIO - Erreur',
+            "$($textRoot.Text) - Erreur",
             [System.Windows.Forms.MessageBoxButtons]::OK,
             [System.Windows.Forms.MessageBoxIcon]::Error
         ) | Out-Null
