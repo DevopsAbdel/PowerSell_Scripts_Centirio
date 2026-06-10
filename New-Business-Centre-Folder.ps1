@@ -26,7 +26,13 @@ param(
     [switch]$AutoOpenReport,
 
     [Parameter(Mandatory = $false)]
-    [switch]$SkipOpenPrompt
+    [switch]$SkipOpenPrompt,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$PreserveAcronyms,
+
+    [Parameter(Mandatory = $false)]
+    [string]$LogCsv
 )
 
 $ErrorActionPreference = 'Stop'
@@ -105,6 +111,84 @@ function Select-FolderGui {
         return $dialog.SelectedPath
     }
     return $null
+}
+
+function Sanitize-Name {
+    param([string]$Name)
+    if ([string]::IsNullOrWhiteSpace($Name)) { return '' }
+    $invalid = [System.IO.Path]::GetInvalidFileNameChars()
+    return -join ($Name.ToCharArray() | ForEach-Object { if ($invalid -contains $_) { '_' } else { $_ } })
+}
+
+function Copy-Directory {
+    param(
+        [Parameter(Mandatory)][string]$Source,
+        [Parameter(Mandatory)][string]$Destination
+    )
+    if (-not (Test-Path -LiteralPath $Source -PathType Container)) {
+        throw "Source introuvable : $Source"
+    }
+    New-Item -Path $Destination -ItemType Directory -Force | Out-Null
+    Copy-Item -Path (Join-Path $Source '*') -Destination $Destination -Recurse -Force -ErrorAction Stop
+}
+
+function Show-ClientInputDialog {
+    param([string]$DefaultValue)
+    $dlg = New-Object System.Windows.Forms.Form
+    $dlg.Text = 'Ajouter un client'
+    $dlg.StartPosition = 'CenterParent'
+    $dlg.FormBorderStyle = 'FixedDialog'
+    $dlg.MaximizeBox = $false
+    $dlg.MinimizeBox = $false
+    $dlg.ClientSize = New-Object System.Drawing.Size(520, 140)
+    $lbl = New-Object System.Windows.Forms.Label
+    $lbl.Text = 'Nom/ID client (ex : DOM-2026-001_NOMCLIENT_ICE) :'
+    $lbl.AutoSize = $true
+    $lbl.Location = New-Object System.Drawing.Point(12, 12)
+    $txt = New-Object System.Windows.Forms.TextBox
+    $txt.Location = New-Object System.Drawing.Point(16, 40)
+    $txt.Width = 488
+    $txt.Text = $DefaultValue
+    $btnOk = New-Object System.Windows.Forms.Button
+    $btnOk.Text = 'Ajouter'
+    $btnOk.Location = New-Object System.Drawing.Point(312, 84)
+    $btnOk.DialogResult = [System.Windows.Forms.DialogResult]::OK
+    $btnCancel = New-Object System.Windows.Forms.Button
+    $btnCancel.Text = 'Annuler'
+    $btnCancel.Location = New-Object System.Drawing.Point(410, 84)
+    $btnCancel.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
+    $dlg.AcceptButton = $btnOk
+    $dlg.CancelButton = $btnCancel
+    $dlg.Controls.AddRange(@($lbl,$txt,$btnOk,$btnCancel))
+    if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { return $txt.Text } else { return $null }
+}
+
+function Add-ClientFromModel {
+    param(
+        [Parameter(Mandatory)][string]$CentreRoot,
+        [Parameter(Mandatory)][string]$ClientName,
+        [string]$SubPath = '02_Domiciliation_Clients\01_Actifs'
+    )
+    $model = Join-Path $CentreRoot "$SubPath\_Modele_Client"
+    if (-not (Test-Path -LiteralPath $model -PathType Container)) {
+        throw "Le dossier _Modele_Client est introuvable : $model"
+    }
+    $clientSafe = Sanitize-Name -Name $ClientName
+    if ([string]::IsNullOrWhiteSpace($clientSafe)) {
+        throw 'Nom/ID client invalide.'
+    }
+    $dest = Join-Path $CentreRoot "$SubPath\$clientSafe"
+    if (Test-Path -LiteralPath $dest) {
+        $overwrite = [System.Windows.Forms.MessageBox]::Show(
+            "Le dossier client existe deja : `"$clientSafe`".`nVoulez-vous ecraser/completer son contenu ?",
+            'Existant',
+            [System.Windows.Forms.MessageBoxButtons]::YesNo,
+            [System.Windows.Forms.MessageBoxIcon]::Question
+        )
+        if ($overwrite -ne [System.Windows.Forms.DialogResult]::Yes) { return $null }
+    }
+    Copy-Directory -Source $model -Destination $dest
+    return $dest
 }
 
 # Structure finale adaptee au fichier fourni
@@ -495,7 +579,8 @@ function Create-CentirioStructure {
         [string]$ParentPath,
         [string]$RootFolderName,
         [bool]$OpenReportAutomatically,
-        [bool]$SkipPrompt
+        [bool]$SkipPrompt,
+        [string]$LogCsvPath = ''
     )
 
     if ([string]::IsNullOrWhiteSpace($ParentPath)) {
@@ -507,8 +592,11 @@ function Create-CentirioStructure {
 
     $rootPath = Join-Path -Path $ParentPath -ChildPath $RootFolderName
     $createdCount = 0
+    $log = [System.Collections.Generic.List[Object]]::new()
+    $ts = Get-Date
 
     if (New-CentirioFolder -Path $rootPath) { $createdCount++ }
+    $log.Add([pscustomobject]@{ Time=$ts; Centre=$RootFolderName; RelativePath='.'; FullPath=$rootPath; Created=$true })
 
     $st = Get-ResolvedStructure -RootName $RootFolderName
 
@@ -517,18 +605,27 @@ function Create-CentirioStructure {
 
     foreach ($main in $st.Keys) {
         $mainPath = Join-Path -Path $rootPath -ChildPath $main
-        if (New-CentirioFolder -Path $mainPath) { $createdCount++ }
+        $mainCreated = New-CentirioFolder -Path $mainPath
+        if ($mainCreated) { $createdCount++ }
+        $log.Add([pscustomobject]@{ Time=$ts; Centre=$RootFolderName; RelativePath=$main; FullPath=$mainPath; Created=$mainCreated })
 
         foreach ($sub in $st[$main].Keys) {
             $subPath = Join-Path -Path $mainPath -ChildPath $sub
-            if (New-CentirioFolder -Path $subPath) { $createdCount++ }
+            $subCreated = New-CentirioFolder -Path $subPath
+            if ($subCreated) { $createdCount++ }
+            $log.Add([pscustomobject]@{ Time=$ts; Centre=$RootFolderName; RelativePath="$main/$sub"; FullPath=$subPath; Created=$subCreated })
         }
     }
 
     $modeleClientRoot = Join-Path -Path $rootPath -ChildPath "$domiciliationKeys\01_Actifs\_Modele_Client"
-    if (New-CentirioFolder -Path $modeleClientRoot) { $createdCount++ }
+    $mcCreated = New-CentirioFolder -Path $modeleClientRoot
+    if ($mcCreated) { $createdCount++ }
+    $log.Add([pscustomobject]@{ Time=$ts; Centre=$RootFolderName; RelativePath="$domiciliationKeys\01_Actifs\_Modele_Client"; FullPath=$modeleClientRoot; Created=$mcCreated })
     foreach ($mc in $ModeleClient.Keys) {
-        if (New-CentirioFolder -Path (Join-Path -Path $modeleClientRoot -ChildPath $mc)) { $createdCount++ }
+        $mcSubPath = Join-Path -Path $modeleClientRoot -ChildPath $mc
+        $mcSubCreated = New-CentirioFolder -Path $mcSubPath
+        if ($mcSubCreated) { $createdCount++ }
+        $log.Add([pscustomobject]@{ Time=$ts; Centre=$RootFolderName; RelativePath="$domiciliationKeys\01_Actifs\_Modele_Client/$mc"; FullPath=$mcSubPath; Created=$mcSubCreated })
     }
 
     $strategieSub = if ($pilotageKey) { "$pilotageKey\02_Strategie_et_Organisation" } else { '00_Pilotage\02_Strategie_et_Organisation' }
@@ -599,10 +696,17 @@ MODELE STANDARD DE DOSSIER CLIENT - DOMICILIATION
         }
     }
 
+    if (-not [string]::IsNullOrWhiteSpace($LogCsvPath)) {
+        try { $log | Export-Csv -Path $LogCsvPath -NoTypeInformation -Encoding UTF8 } catch {
+            Write-Warning "Impossible d'ecrire le journal CSV : $($_.Exception.Message)"
+        }
+    }
+
     return [PSCustomObject]@{
         RootPath = $rootPath
         ReportPath = $reportPath
         CreatedCount = $createdCount
+        LogCsvPath = $LogCsvPath
     }
 }
 
@@ -610,9 +714,11 @@ if ($NoGui) {
     if ([string]::IsNullOrWhiteSpace($ParentPath)) {
         throw 'En mode -NoGui, le parametre -ParentPath est obligatoire.'
     }
-    $result = Create-CentirioStructure -ParentPath $ParentPath -RootFolderName $RootFolderName -OpenReportAutomatically:$AutoOpenReport -SkipPrompt:$SkipOpenPrompt
+    $logPath = if ($LogCsv) { $LogCsv } else { Join-Path $ParentPath "arbo_log_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv" }
+    $result = Create-CentirioStructure -ParentPath $ParentPath -RootFolderName $RootFolderName -OpenReportAutomatically:$AutoOpenReport -SkipPrompt:$SkipOpenPrompt -LogCsvPath $logPath
     Write-Host "Structure creee : $($result.RootPath)" -ForegroundColor Cyan
     Write-Host "Rapport HTML  : $($result.ReportPath)" -ForegroundColor Cyan
+    Write-Host "Journal CSV   : $($result.LogCsvPath)" -ForegroundColor Cyan
     exit 0
 }
 
@@ -659,6 +765,16 @@ $form.Controls.Add($labelParent)
 $textParent = New-Object System.Windows.Forms.TextBox
 $textParent.Width = 760
 $textParent.Location = New-Object System.Drawing.Point(22, 108)
+$textParent.AllowDrop = $true
+$textParent.Add_DragEnter({
+    if ($_.Data.GetDataPresent([System.Windows.Forms.DataFormats]::FileDrop)) {
+        $_.Effect = [System.Windows.Forms.DragDropEffects]::Copy
+    }
+})
+$textParent.Add_DragDrop({
+    $items = $_.Data.GetData([System.Windows.Forms.DataFormats]::FileDrop)
+    if ($items -and (Test-Path $items[0] -PathType Container)) { $textParent.Text = $items[0] }
+})
 $textParent.Text = if ($ParentPath) { $ParentPath } else { [Environment]::GetFolderPath('Desktop') }
 $form.Controls.Add($textParent)
 
@@ -771,8 +887,28 @@ $btnClose.Height = 38
 $btnClose.Location = New-Object System.Drawing.Point(1050, 706)
 $form.Controls.Add($btnClose)
 
+$tip = New-Object System.Windows.Forms.ToolTip
+$tip.SetToolTip($btnBrowse, 'Choisir un dossier parent via l''explorateur.')
+$tip.SetToolTip($textRoot, 'Saisissez ici le nom du dossier racine de la structure.')
+$tip.SetToolTip($checkAutoOpen, 'Ouvre automatiquement le rapport HTML après création.')
+$tip.SetToolTip($checkSkipPrompt, 'Ne pas demander confirmation avant d''ouvrir le rapport.')
+$tip.SetToolTip($btnCreate, 'Créer l''arborescence complète du centre.')
+$tip.SetToolTip($btnOpenReport, 'Ouvrir le rapport HTML de la structure.')
+
+$btnAddClient = New-Object System.Windows.Forms.Button
+$btnAddClient.Text = 'Ajouter un client...'
+$btnAddClient.Width = 140
+$btnAddClient.Height = 38
+$btnAddClient.Location = New-Object System.Drawing.Point(740, 666)
+$btnAddClient.Enabled = $false
+$btnAddClient.BackColor = [System.Drawing.Color]::FromArgb(56, 189, 248)
+$btnAddClient.ForeColor = [System.Drawing.Color]::Black
+$form.Controls.Add($btnAddClient)
+$tip.SetToolTip($btnAddClient, 'Dupliquer _Modele_Client pour créer un nouveau dossier client (après création).')
+
 $script:LastReportPath = $null
 $script:LastRootPath = $null
+$script:LastCentreRoot = $null
 
 function Update-InfoPanel {
     param([string]$NodeText, [string]$ParentText)
@@ -836,11 +972,14 @@ $btnCreate.Add_Click({
         if ([string]::IsNullOrWhiteSpace($parent)) { throw 'Veuillez choisir un dossier parent.' }
         if ([string]::IsNullOrWhiteSpace($root)) { throw 'Veuillez renseigner le nom du dossier racine.' }
 
-        $result = Create-CentirioStructure -ParentPath $parent -RootFolderName $root -OpenReportAutomatically:$checkAutoOpen.Checked -SkipPrompt:$checkSkipPrompt.Checked
+        $logPath = Join-Path $parent "arbo_log_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
+        $result = Create-CentirioStructure -ParentPath $parent -RootFolderName $root -OpenReportAutomatically:$checkAutoOpen.Checked -SkipPrompt:$checkSkipPrompt.Checked -LogCsvPath $logPath
         $script:LastReportPath = $result.ReportPath
         $script:LastRootPath = $result.RootPath
+        $script:LastCentreRoot = $result.RootPath
         $btnOpenReport.Enabled = $true
-        $statusLabel.Text = "Succès : $($result.CreatedCount) dossier(s) créé(s) ou vérifié(s). Racine : $($result.RootPath)"
+        $btnAddClient.Enabled = $true
+        $statusLabel.Text = "Succès : $($result.CreatedCount) dossier(s) créé(s) ou vérifié(s). Journal : $($result.LogCsvPath)"
         [System.Windows.Forms.MessageBox]::Show(
             "La structure a été créée avec succès.`n`nRacine : $($result.RootPath)`nRapport : $($result.ReportPath)",
             "$($textRoot.Text) - Création terminée",
@@ -862,6 +1001,41 @@ $btnCreate.Add_Click({
 $btnOpenReport.Add_Click({
     if ($script:LastReportPath -and (Test-Path -LiteralPath $script:LastReportPath)) {
         Start-Process -FilePath $script:LastReportPath
+    }
+})
+
+$btnAddClient.Add_Click({
+    if (-not $script:LastCentreRoot) {
+        [System.Windows.Forms.MessageBox]::Show('Créez d''abord le centre pour activer l''ajout de client.', 'Information', 0, [System.Windows.Forms.MessageBoxIcon]::Information) | Out-Null
+        return
+    }
+    $suggest = "DOM-$(Get-Date -Format yyyy)-001_NOMCLIENT_ICE"
+    $client = Show-ClientInputDialog -DefaultValue $suggest
+    if ($client) {
+        try {
+            $st = Get-ResolvedStructure -RootName $textRoot.Text
+            $domKey = $st.Keys | Where-Object { $_ -like '*Domiciliation*' } | Select-Object -First 1
+            $subPath = if ($domKey) { "$domKey\01_Actifs" } else { '02_Domiciliation_Clients\01_Actifs' }
+            $dest = Add-ClientFromModel -CentreRoot $script:LastCentreRoot -ClientName $client -SubPath $subPath
+            if ($dest) {
+                $r = [System.Windows.Forms.MessageBox]::Show(
+                    "Client ajouté : `"$client`"`n$dest",
+                    'Succès',
+                    [System.Windows.Forms.MessageBoxButtons]::OK,
+                    [System.Windows.Forms.MessageBoxIcon]::Information
+                )
+                if ($r -eq [System.Windows.Forms.DialogResult]::OK) {
+                    try { Start-Process -FilePath $dest } catch {}
+                }
+            }
+        } catch {
+            [System.Windows.Forms.MessageBox]::Show(
+                "Erreur lors de l'ajout du client : $($_.Exception.Message)",
+                'Erreur',
+                0,
+                [System.Windows.Forms.MessageBoxIcon]::Error
+            ) | Out-Null
+        }
     }
 })
 
