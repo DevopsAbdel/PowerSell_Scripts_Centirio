@@ -112,6 +112,8 @@ $xaml = @"
         </Border>
 
         <StackPanel Grid.Row="6" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+            <CheckBox Name="ChkOpen" Content="📂 Ouvrir le dossier" VerticalAlignment="Center"
+                      IsChecked="True" Margin="0,0,16,0"/>
             <Button Name="BtnCreate" Content="   Créer le dossier   " FontSize="12" FontWeight="Bold"
                     Padding="10,4" Margin="0,0,12,0" IsEnabled="False"
                     Background="#A6E3A1" Foreground="#1E1E2E" BorderThickness="0">
@@ -166,6 +168,7 @@ $btnCreate  = $window.FindName('BtnCreate')
 $btnCancel  = $window.FindName('BtnCancel')
 $txtDest    = $window.FindName('TxtDest')
 $btnBrowse  = $window.FindName('BtnBrowse')
+$chkOpen    = $window.FindName('ChkOpen')
 $destPath = [Environment]::GetFolderPath('Desktop')
 
 $chkToday.Add_Checked({
@@ -185,16 +188,16 @@ $rbModif.Add_Checked({ Update-Preview })
 $btnBrowse.Add_Click({
     $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
     $dlg.Description = "Choisir le dossier de destination"
-    $dlg.SelectedPath = $destPath
+    $dlg.SelectedPath = $script:destPath
     if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-        $destPath = $dlg.SelectedPath
-        $txtDest.Text = $destPath
+        $script:destPath = $dlg.SelectedPath
+        $txtDest.Text = $script:destPath
     }
 })
 
 $window.Add_Loaded({
     $txtDate.Text = (Get-Date).ToString('yyyy-MM-dd')
-    $txtDest.Text = $destPath
+    $txtDest.Text = $script:destPath
     Update-Preview
 })
 
@@ -232,7 +235,7 @@ $txtSte.Add_TextChanged({ Update-Preview })
 
 $btnCreate.Add_Click({
     $folderName = $preview.Text
-    $targetPath = Join-Path $destPath $folderName
+    $targetPath = Join-Path $script:destPath $folderName
 
     if (Test-Path $targetPath) {
         $r = [System.Windows.MessageBox]::Show(
@@ -244,6 +247,8 @@ $btnCreate.Add_Click({
     New-Item -Path $targetPath -ItemType Directory | Out-Null
 
     try { Set-Clipboard -Value $targetPath } catch {}
+
+    if ($chkOpen.IsChecked) { Invoke-Item -LiteralPath $targetPath }
 
     Show-Info "Dossier créé :`n$folderName`n`n📋 Chemin copié dans le presse-papiers" "Succès"
     $window.Close()
