@@ -9,7 +9,7 @@ Suite de scripts PowerShell pour la gestion documentaire et la création de doss
 | `New-Business-Centre-Folder.ps1` | Déploiement de l'arborescence documentaire complète (WinForms) avec TreeView, rapport HTML et ajout de clients. |
 | `Generateur_Dossiers_Clients_2026.ps1` | Générateur de dossiers clients (WPF) avec chargement Excel (COM), copie de templates, gestion de conflits et guide HTML. |
 | `CENTIRIO-Creation-Dossier-Domicilié.ps1` | Création individuelle de dossier client (WPF) avec interface sombre. |
-| `Create-Dossier-DJ-DM.ps1` | Création rapide d'un dossier DJ (Consultation/Modification) au format `YYYY-MM-DD_DJ_{Cons\|Modif}_{SOCIÉTÉ}` avec interface WPF sombre, sélection du dossier de destination et ouverture automatique. |
+| `Create-Dossier-DJ-DM.ps1` | Création rapide d'un dossier DJ (DJCrea/DJModif) au format `YYYY-MM-DD_DJ{Crea\|Modif}_{SOCIÉTÉ}` avec interface WPF sombre, sélection du dossier de destination, sous-dossier pour DJModif et ouverture automatique. |
 
 ## Prérequis
 

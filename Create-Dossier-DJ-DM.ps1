@@ -12,7 +12,7 @@ function Show-Error { [System.Windows.MessageBox]::Show($args[0], $args[1], 'OK'
 #region XAML
 $xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        Title="Création Dossier DJ / DM" Width="580" SizeToContent="Height" MinWidth="480"
+        Title="Création Dossier DJCrea / DJModif" Width="580" SizeToContent="Height" MinWidth="480"
         WindowStartupLocation="CenterScreen" ResizeMode="CanResize"
         FontFamily="Segoe UI" FontSize="13"
         Background="#1E1E2E" Foreground="#CDD6F4">
@@ -53,9 +53,10 @@ $xaml = @"
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <TextBlock Grid.Row="0" Text="📁 Création de dossier DJ / DM" FontSize="18"
+        <TextBlock Grid.Row="0" Text="📁 Création de dossier DJCrea / DJModif" FontSize="18"
                    FontWeight="Bold" Foreground="#CBA6F7" Margin="0,0,0,16"/>
 
         <Border Grid.Row="1" Background="#313244" CornerRadius="8" Padding="12" Margin="0,0,0,8">
@@ -73,23 +74,42 @@ $xaml = @"
         </Border>
 
         <Border Grid.Row="2" Background="#313244" CornerRadius="8" Padding="12" Margin="0,0,0,8">
-            <StackPanel>
-                <Label Content="🏷️ Type" FontSize="14" Padding="0"/>
-                <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                    <RadioButton Name="RbCons" Content="DJ_Cons" IsChecked="True" GroupName="Type"/>
-                    <RadioButton Name="RbModif" Content="DJ_Modif" GroupName="Type" Margin="16,0,0,0"/>
-                </StackPanel>
-            </StackPanel>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Label Content="🏷️" FontSize="14" VerticalAlignment="Center"/>
+                <RadioButton Grid.Column="1" Name="RbCons" Content="DJCrea" IsChecked="True"
+                             GroupName="Type" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                <RadioButton Grid.Column="2" Name="RbModif" Content="DJModif" GroupName="Type"
+                             VerticalAlignment="Center" Margin="16,0,0,0"/>
+            </Grid>
         </Border>
 
-        <Border Grid.Row="3" Background="#313244" CornerRadius="8" Padding="12" Margin="0,0,0,8">
+        <Border Grid.Row="3" Name="BdrDateSte" Background="#313244" CornerRadius="8" Padding="12" Margin="0,0,0,8"
+                Visibility="Collapsed">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Label Content="📅 Date création société" FontSize="14" VerticalAlignment="Center"/>
+                <TextBox Grid.Column="1" Name="TxtDateSte" Width="130" Text=""
+                         HorizontalContentAlignment="Center" FontFamily="Consolas"
+                         HorizontalAlignment="Right"/>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="4" Background="#313244" CornerRadius="8" Padding="12" Margin="0,0,0,8">
             <StackPanel>
                 <Label Content="🏢 Société" FontSize="14" Padding="0"/>
                 <TextBox Name="TxtSte" FontSize="14" FontWeight="Bold" Margin="0,4,0,0"/>
             </StackPanel>
         </Border>
 
-        <Border Grid.Row="4" Background="#313244" CornerRadius="8" Padding="12" Margin="0,0,0,8">
+        <Border Grid.Row="5" Background="#313244" CornerRadius="8" Padding="12" Margin="0,0,0,8">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
@@ -103,7 +123,7 @@ $xaml = @"
             </Grid>
         </Border>
 
-        <Border Grid.Row="5" Background="#313244" CornerRadius="8" Padding="12" Margin="0,0,0,8">
+        <Border Grid.Row="6" Background="#313244" CornerRadius="8" Padding="12" Margin="0,0,0,8">
             <StackPanel>
                 <Label Content="🔍 Aperçu" FontSize="14" Padding="0"/>
                 <TextBlock Name="Preview" FontSize="15" FontWeight="Bold" Margin="0,4,0,0"
@@ -111,7 +131,7 @@ $xaml = @"
             </StackPanel>
         </Border>
 
-        <StackPanel Grid.Row="6" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+        <StackPanel Grid.Row="7" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
             <CheckBox Name="ChkOpen" Content="📂 Ouvrir le dossier" VerticalAlignment="Center"
                       IsChecked="True" Margin="0,0,16,0"/>
             <Button Name="BtnCreate" Content="   Créer le dossier   " FontSize="12" FontWeight="Bold"
@@ -169,6 +189,8 @@ $btnCancel  = $window.FindName('BtnCancel')
 $txtDest    = $window.FindName('TxtDest')
 $btnBrowse  = $window.FindName('BtnBrowse')
 $chkOpen    = $window.FindName('ChkOpen')
+$bdrDateSte = $window.FindName('BdrDateSte')
+$txtDateSte = $window.FindName('TxtDateSte')
 $destPath = [Environment]::GetFolderPath('Desktop')
 
 $chkToday.Add_Checked({
@@ -182,8 +204,15 @@ $chkToday.Add_Unchecked({
 })
 $txtDate.Add_TextChanged({ Update-Preview })
 
-$rbCons.Add_Checked({ Update-Preview })
-$rbModif.Add_Checked({ Update-Preview })
+$rbCons.Add_Checked({
+    $bdrDateSte.Visibility = 'Collapsed'
+    Update-Preview
+})
+$rbModif.Add_Checked({
+    $bdrDateSte.Visibility = 'Visible'
+    if ([string]::IsNullOrWhiteSpace($txtDateSte.Text)) { $txtDateSte.Text = (Get-Date).ToString('yyyy-MM-dd') }
+    Update-Preview
+})
 
 $btnBrowse.Add_Click({
     $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
@@ -216,25 +245,41 @@ function Update-Preview {
             return
         }
     }
-    $type = if ($rbCons.IsChecked) { 'DJ_Cons' } else { 'DJ_Modif' }
-    $ste = $txtSte.Text.Trim().ToUpper()
-    $ste = $ste -replace '\s+', ' '
-    if ([string]::IsNullOrWhiteSpace($ste)) {
+    $script:dateStr = $dateStr
+    $script:type = if ($rbCons.IsChecked) { 'DJCrea' } else { 'DJModif' }
+    $script:ste = $txtSte.Text.Trim().ToUpper()
+    $script:ste = $script:ste -replace '\s+', ' '
+    if ([string]::IsNullOrWhiteSpace($script:ste)) {
         $preview.Foreground = "#A6E3A1"
-        $preview.Text = "$dateStr`_$type`_{NOM_STE}"
+        $preview.Text = "$dateStr`_$($script:type)`_{NOM_STE}"
         $btnCreate.IsEnabled = $false
         return
     }
-    $folderName = "$dateStr`_$type`_$ste"
+    $folderName = "$dateStr`_$($script:type)`_$($script:ste)"
     $preview.Foreground = "#A6E3A1"
-    $preview.Text = $folderName
+    if ($rbModif.IsChecked) {
+        $dateSte = $txtDateSte.Text.Trim()
+        try {
+            $parsed = [datetime]::ParseExact($dateSte, 'yyyy-MM-dd', $null)
+            $dateSteOk = $parsed.ToString('yyyy-MM-dd')
+        } catch { $dateSteOk = $null }
+        if ($dateSteOk) {
+            $subFolder = "$dateSteOk`_DJCrea`_$($script:ste)"
+            $preview.Text = "$folderName`n  └─ $subFolder"
+        } else {
+            $preview.Text = "$folderName`n  └─ {date_création}_DJCrea_{NOM_STE}"
+        }
+    } else {
+        $preview.Text = $folderName
+    }
     $btnCreate.IsEnabled = $true
 }
 
 $txtSte.Add_TextChanged({ Update-Preview })
 
 $btnCreate.Add_Click({
-    $folderName = $preview.Text
+    $dateStr = if ($chkToday.IsChecked) { (Get-Date).ToString('yyyy-MM-dd') } else { $txtDate.Text.Trim() }
+    $folderName = "$dateStr`_$($script:type)`_$($script:ste)"
     $targetPath = Join-Path $script:destPath $folderName
 
     if (Test-Path $targetPath) {
@@ -245,6 +290,15 @@ $btnCreate.Add_Click({
         Remove-Item -LiteralPath $targetPath -Recurse -Force
     }
     New-Item -Path $targetPath -ItemType Directory | Out-Null
+
+    if ($rbModif.IsChecked) {
+        $dateSte = $txtDateSte.Text.Trim()
+        try {
+            $parsed = [datetime]::ParseExact($dateSte, 'yyyy-MM-dd', $null)
+            $subFolder = "$($parsed.ToString('yyyy-MM-dd'))_DJCrea`_$($script:ste)"
+            New-Item -Path (Join-Path $targetPath $subFolder) -ItemType Directory | Out-Null
+        } catch {}
+    }
 
     try { Set-Clipboard -Value $targetPath } catch {}
 
